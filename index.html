@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>美术馆值班管理系统</title>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <style>
+        :root { --border-color: #b5d5c5; --header-bg: #8ba870; --monday-bg: #fff5e6; }
+        body { font-family: "Microsoft YaHei", sans-serif; background: #f0f2f5; margin: 0; padding: 15px; display: flex; flex-direction: column; align-items: center; }
+        
+        /* 顶部控制面板布局 */
+        .top-controls { 
+            display: flex; 
+            gap: 20px; 
+            width: 100%; 
+            max-width: 1200px; 
+            margin-bottom: 20px; 
+            flex-wrap: wrap; 
+        }
+        
+        .control-card { 
+            flex: 1; 
+            min-width: 300px; 
+            background: white; 
+            padding: 20px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+        }
+
+        .control-card h3 { margin: 0 0 15px 0; color: #2c3e50; font-size: 16px; border-left: 4px solid var(--header-bg); padding-left: 10px; }
+        
+        /* 输入组布局 */
+        .input-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+        .input-row > * { flex: 1; min-width: 120px; }
+
+        /* 按钮组布局 */
+        .action-group { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+
+        /* 日历表格 */
+        .calendar-container { width: 100%; max-width: 1200px; background: white; padding: 15px; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .calendar-title { background: var(--header-bg); color: #ffd700; text-align: center; padding: 10px; font-size: 20px; font-weight: bold; border: 1px solid var(--border-color); }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); border-left: 1px solid var(--border-color); border-top: 1px solid var(--border-color); }
+        .weekday-header { background: #c8e6c9; padding: 8px; text-align: center; font-weight: bold; border-right: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); font-size: 14px; }
+        
+        .day-cell { min-height: 100px; background: #fff; border-right: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); padding: 4px; position: relative; }
+        .date-num { font-size: 12px; color: #333; font-weight: bold; text-align: center; border-bottom: 1px solid #f0f0f0; margin-bottom: 5px; }
+        .closed { background: var(--monday-bg); text-align: center; }
+        .closed-text { margin-top: 25px; font-size: 16px; color: #666; }
+
+        /* 值班条目对齐 */
+        .duty-item { 
+            display: grid; 
+            grid-template-columns: 55px 1fr 15px; 
+            align-items: center;
+            white-space: nowrap; 
+            padding: 2px 0;
+            font-size: 12px;
+        }
+        .name-part { font-weight: bold; padding-left: 2px; overflow: hidden; text-overflow: ellipsis; }
+        .time-part { color: #333; text-align: left; }
+        .del-btn { color: #ff4d4f; cursor: pointer; font-size: 14px; text-align: center; opacity: 0; }
+        .duty-item:hover .del-btn { opacity: 1; }
+        .editable:focus { outline: 1px solid var(--header-bg); background: #fff; }
+
+        /* 通用表单件 */
+        input, select { padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        .btn { padding: 10px; cursor: pointer; border: none; border-radius: 4px; font-weight: bold; transition: 0.2s; font-size: 14px; }
+        .btn-add { background: var(--header-bg); color: white; width: 100%; }
+        .btn-save { background: #f39c12; color: white; }
+        .btn-excel { background: #27ae60; color: white; }
+        .btn-img { background: #9b59b6; color: white; }
+        .btn-print { background: #34495e; color: white; }
+
+        /* 手机适配 */
+        @media screen and (max-width: 768px) {
+            .calendar-grid { grid-template-columns: repeat(1, 1fr); }
+            .weekday-header { display: none; }
+            .day-cell { min-height: auto; display: flex; align-items: center; gap: 10px; }
+            .date-num { width: 40px; border-bottom: none; margin-bottom: 0; }
+            .top-controls { flex-direction: column; }
+            .control-card { min-width: 100%; }
+        }
+
+        @media print { 
+            .top-controls { display: none !important; } 
+            .calendar-container { box-shadow: none; padding: 0; max-width: 100%; }
+            body { padding: 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="top-controls">
+        <div class="control-card">
+            <h3>1. 录入数据</h3>
+            <div class="input-row">
+                <input type="month" id="targetMonth" value="2026-04" onchange="initCalendar(); loadFromLocal();">
+                <input type="text" id="staffName" placeholder="人员姓名">
+            </div>
+            <div class="input-row">
+                <input type="date" id="dutyDate">
+                <select id="dutyTime">
+                    <option value="9:00-17:00">9:00-17:00</option>
+                    <option value="9:00-13:30">9:00-13:30</option>
+                    <option value="13:30-17:00">13:30-17:00</option>
+                    <option value="9:00-16:00">9:00-16:00</option>
+                </select>
+            </div>
+            <button class="btn btn-add" onclick="addDuty()">➕ 添加到下方表格</button>
+        </div>
+
+        <div class="control-card">
+            <h3>2. 数据管理与导出</h3>
+            <div class="action-group">
+                <button class="btn btn-save" onclick="saveToLocal()">💾 保存修改</button>
+                <button class="btn btn-excel" onclick="exportExcel()">📊 导出 Excel</button>
+                <button class="btn btn-img" onclick="exportImage()">🖼️ 导出图片</button>
+                <button class="btn btn-print" onclick="window.print()">🖨️ 打印预览</button>
+            </div>
+            <p style="font-size: 12px; color: #888; margin-top: 12px; line-height: 1.4;">
+                * 自动保存已开启。点击表格内文字可直接编辑。周一默认闭馆。
+            </p>
+        </div>
+    </div>
+
+    <div class="calendar-container" id="captureArea">
+        <div class="calendar-title" id="calTitle">美术馆值班表</div>
+        <div class="calendar-grid">
+            <div class="weekday-header">一</div>
+            <div class="weekday-header">二</div>
+            <div class="weekday-header">三</div>
+            <div class="weekday-header">四</div>
+            <div class="weekday-header">五</div>
+            <div class="weekday-header">六</div>
+            <div class="weekday-header">日</div>
+            <div id="daysContainer" style="display: contents;"></div>
+        </div>
+    </div>
+
+<script>
+    window.onload = () => { initCalendar(); loadFromLocal(); };
+
+    function initCalendar() {
+        const monthVal = document.getElementById('targetMonth').value;
+        const [year, month] = monthVal.split('-').map(Number);
+        document.getElementById('calTitle').innerText = `美术馆${year}年${month}月份值班表`;
+        document.getElementById('dutyDate').value = `${monthVal}-01`;
+
+        const firstDay = new Date(year, month - 1, 1).getDay(); 
+        const adjustedFirstDay = (firstDay === 0) ? 6 : firstDay - 1; 
+        const daysInMonth = new Date(year, month, 0).getDate();
+        
+        const container = document.getElementById('daysContainer');
+        container.innerHTML = "";
+
+        for (let i = 0; i < adjustedFirstDay; i++) {
+            container.innerHTML += '<div class="day-cell" style="background:#fafafa"></div>';
+        }
+
+        for (let d = 1; d <= daysInMonth; d++) {
+            const currentIdx = (adjustedFirstDay + d - 1) % 7;
+            const isMonday = currentIdx === 0;
+            const dateId = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+            
+            let cellHtml = `<div class="day-cell ${isMonday ? 'closed' : ''}" id="cell-${dateId}" data-date="${dateId}">`;
+            cellHtml += `<div class="date-num">${month}/${d}</div>`;
+            if (isMonday) {
+                cellHtml += `<div class="closed-text">闭馆</div>`;
+            } else {
+                cellHtml += `<div class="duty-list"></div>`;
+            }
+            cellHtml += `</div>`;
+            container.innerHTML += cellHtml;
+        }
+    }
+
+    function addDuty(name = "", time = "", dateInput = "") {
+        const staffName = name || document.getElementById('staffName').value.trim();
+        const date = dateInput || document.getElementById('dutyDate').value;
+        const dutyTime = time || document.getElementById('dutyTime').value;
+
+        if (!staffName) return;
+        const targetCell = document.querySelector(`#cell-${date} .duty-list`);
+        if (!targetCell) return;
+
+        const item = document.createElement('div');
+        item.className = 'duty-item';
+        item.innerHTML = `
+            <span class="editable name-part" contenteditable="true" spellcheck="false" onblur="saveToLocal()">${staffName}</span>
+            <span class="editable time-part" contenteditable="true" spellcheck="false" onblur="saveToLocal()">${dutyTime}</span>
+            <span class="del-btn" onclick="this.parentElement.remove(); saveToLocal();">×</span>
+        `;
+        targetCell.appendChild(item);
+        if(!name) { document.getElementById('staffName').value = ""; saveToLocal(); }
+    }
+
+    function saveToLocal() {
+        const monthKey = document.getElementById('targetMonth').value;
+        const data = [];
+        document.querySelectorAll('.day-cell:not(.closed)').forEach(cell => {
+            const date = cell.getAttribute('data-date');
+            cell.querySelectorAll('.duty-item').forEach(item => {
+                data.push({ date: date, name: item.children[0].innerText, time: item.children[1].innerText });
+            });
+        });
+        localStorage.setItem('museum_duty_' + monthKey, JSON.stringify(data));
+    }
+
+    function loadFromLocal() {
+        const monthKey = document.getElementById('targetMonth').value;
+        const saved = localStorage.getItem('museum_duty_' + monthKey);
+        if (saved) {
+            const data = JSON.parse(saved);
+            data.forEach(item => addDuty(item.name, item.time, item.date));
+        }
+    }
+
+    function exportExcel() {
+        const rows = [["日期", "星期", "姓名", "时间"]];
+        const weekMap = ["一", "二", "三", "四", "五", "六", "日"];
+        document.querySelectorAll('.day-cell').forEach(cell => {
+            const date = cell.getAttribute('data-date');
+            if(!date) return;
+            const d = new Date(date);
+            const week = weekMap[d.getDay() === 0 ? 6 : d.getDay() - 1];
+            if(cell.classList.contains('closed')) {
+                rows.push([date, week, "闭馆", "-"]);
+            } else {
+                cell.querySelectorAll('.duty-item').forEach(item => {
+                    rows.push([date, week, item.children[0].innerText, item.children[1].innerText]);
+                });
+            }
+        });
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "值班表");
+        XLSX.writeFile(wb, `美术馆值班表_${document.getElementById('targetMonth').value}.xlsx`);
+    }
+
+    function exportImage() {
+        html2canvas(document.getElementById('captureArea'), { scale: 3 }).then(canvas => {
+            const link = document.createElement('a');
+            link.download = `美术馆值班表.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+        });
+    }
+</script>
+</body>
+</html>
